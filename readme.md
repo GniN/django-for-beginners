@@ -122,7 +122,8 @@ urlpatterns = [
 
 ## 動態url
 
-如果我們希望在url 後面加上參數，讓顯示的時間可以是現在時間加上幾小時，讓網址可以向是下面這樣。
+如果我們希望在url 後面加上參數，讓顯示的時間可以是現在時間加上幾小時。
+網址看起來可能是這樣。
 
 ```python
 urlpatterns = [
@@ -138,7 +139,271 @@ urlpatterns = [
 ```python
 urlpatterns = [
     # ...
-    url(r'^time/plus/\d+/$', hours_ahead),
+    url(r'^time/plus/(\d+)/$', hours_ahead),
     # ...
 ]
+```
+
+```python
+def hours_ahead(request, offset):
+    try:
+        offset = int(offset)
+    except ValueError:
+        raise Http404()
+    dt = datetime.datetime.now() + datetime.timedelta(hours=offset)
+    html = "<html><body>In %s hour(s), it will be  %s.</body></html>" % (offset, dt)
+    return HttpResponse(html)
+```
+
+## json results
+```python
+def json_result(request):
+    r = {
+        'name': 'Andy',
+        'age': 28
+    }
+    return JsonResponse(r)
+```
+```python
+urlpatterns = [
+    # ...
+    url(r'^json/$', json_result),
+    # ...
+]
+```
+## Model 和資料庫
+
+### 資料庫設定
+
+```python
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+    }
+}
+```
+
+### 第一個app
+
+在有 _manage.py_ 的資料夾下:
+```
+python manage.py startapp books 
+```
+會產生一個books的app
+
+### 建立model
+
+```python
+from django.db import models
+
+class Publisher(models.Model):
+    name = models.CharField(max_length=30)
+    address = models.CharField(max_length=50)
+    city = models.CharField(max_length=60)
+    state_province = models.CharField(max_length=30)
+    country = models.CharField(max_length=50)
+    website = models.URLField()
+
+class Author(models.Model):
+    first_name = models.CharField(max_length=30)
+    last_name = models.CharField(max_length=40)
+    email = models.EmailField()
+
+class Book(models.Model):
+    title = models.CharField(max_length=100)
+    authors = models.ManyToManyField(Author)
+    publisher = models.ForeignKey(Publisher)
+    publication_date = models.DateField()
+```
+
+```python
+INSTALLED_APPS = [
+'books.apps.BooksConfig',  #<---- 加入到installed apps
+'django.contrib.admin',
+'django.contrib.auth',
+'django.contrib.contenttypes',
+'django.contrib.sessions',
+'django.contrib.messages',
+'django.contrib.staticfiles',
+]
+```
+
+產生migration紀錄
+```
+python manage.py makemigrations books 
+```
+
+查看這次變更的sql
+```
+python manage.py sqlmigrate books 0001
+```
+
+對資料庫進行變更
+```
+python manage.py migrate 
+```
+
+## 來玩玩看資料庫吧
+
+可以用以下指令進入 django shell
+```
+python manage.py shell
+```
+
+```python
+>>> from books.models import Publisher
+>>> p1 = Publisher(name='Apress', address='2855 Telegraph Avenue', city='Berkeley', state_province='CA', country='U.S.A.', website='http://www.apress.com/')
+>>> p1.save()
+>>> p2 = Publisher(name="O'Reilly", address='10 Fawcett St.', city='Cambridge', state_province='MA', country='U.S.A.',website='http://www.oreilly.com/')
+>>> p2.save()
+>>> publisher_list = Publisher.objects.all()
+>>> publisher_list
+<QuerySet [<Publisher: Publisher object>, <Publisher: Publisher object>]>py
+```
+
+但我們會發現這樣的result並不容易讀
+```
+<QuerySet [<Publisher: Publisher object>, <Publisher: Publisher object>]>
+```
+
+我們可以對models稍作修改
+
+```python
+from django.db import models
+
+class Publisher(models.Model):
+    name = models.CharField(max_length=30)
+    address = models.CharField(max_length=50)
+    city = models.CharField(max_length=60)
+    state_province = models.CharField(max_length=30)
+    country = models.CharField(max_length=50)
+    website = models.URLField()
+
+    def __str__(self):
+        return self.name
+
+class Author(models.Model):
+    first_name = models.CharField(max_length=30)
+    last_name = models.CharField(max_length=40)
+    email = models.EmailField()
+
+    def __str__(self):
+        return u'%s %s' % (self.first_name, self.last_name)
+
+class Book(models.Model):
+    title = models.CharField(max_length=100)
+    authors = models.ManyToManyField(Author)
+    publisher = models.ForeignKey(Publisher)
+    publication_date = models.DateField()
+
+    def __str__(self):
+        return self.title
+```
+
+讓我們再試一次看看吧
+
+```python
+>>> from books.models import Publisher
+>>> publisher_list = Publisher.objects.all()
+>>> publisher_list
+<QuerySet [<Publisher: Apress>, <Publisher: O'Reilly>]>
+```
+
+update record
+
+```python
+>>> p = publisher_list[0]
+>>> p.name
+'Apress'
+>>> p.name = "apress2"
+>>> p.save()
+>>> publisher_list = Publisher.objects.all()
+>>> publisher_list
+<QuerySet [<Publisher: apress2>]>
+```
+
+filtering data
+
+```python
+Publisher.objects.filter(name="O'Reilly")
+Publisher.objects.filter(name="O'Reilly", address='10 Fawcett St.2')
+Publisher.objects.filter(name__contains="press")
+```
+
+get single object
+```python
+Publisher.objects.get(name="O'Reilly")
+```
+
+ordering
+```python
+Publisher.objects.order_by("name")
+Publisher.objects.order_by("-name")
+```
+
+Chaining Lookups
+```
+Publisher.objects.filter(country="U.S.A.").order_by("-name")
+```
+
+limit
+```python
+Publisher.objects.order_by('name')[0]
+```
+
+會被轉成
+
+```SQL
+SELECT id, name, address, city, state_province, country, website
+FROM books_publisher
+ORDER BY name
+LIMIT 1;
+```
+
+```python
+Publisher.objects.order_by('name')[0:2]
+```
+
+```SQL
+SELECT id, name, address, city, state_province, country, website
+FROM books_publisher
+ORDER BY name
+OFFSET 0 LIMIT 2;
+```
+
+## the Django Admin Site
+
+建立super user
+```
+python manage.py createsuperuser 
+```
+
+建立完後我們到admin site看看吧
+```
+http://127.0.0.1:8000/admin/
+```
+
+將books 的tables 加入admin site，首先我們在books資料夾中的admin.py
+```python
+from django.contrib import admin
+from .models import Publisher, Author, Book
+
+admin.site.register(Publisher)
+admin.site.register(Author)
+admin.site.register(Book)
+```
+
+還記得我們的 __str__ 嗎?
+```python
+class Publisher(models.Model):
+    name = models.CharField(max_length=30)
+    address = models.CharField(max_length=50)
+    city = models.CharField(max_length=60)
+    state_province = models.CharField(max_length=30)
+    country = models.CharField(max_length=50)
+    website = models.URLField()
+
+    def __str__(self):
+        return self.name  #<--- 把這邊修改一下再來看看吧
 ```
